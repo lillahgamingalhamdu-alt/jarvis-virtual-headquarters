@@ -22,56 +22,105 @@ async function getSettings(env) {
 }
 
 
+
 async function marketData(env, settings) {
   const asset = String(settings.asset || "bitcoin").toLowerCase();
   const currency = String(settings.currency || "usd").toLowerCase();
 
   const assets = {
-    bitcoin: "BTC",
-    ethereum: "ETH",
-    solana: "SOL"
+    bitcoin: { binance: "BTC", kraken: "XBT", coinbase: "BTC" },
+    ethereum: { binance: "ETH", kraken: "ETH", coinbase: "ETH" },
+    solana: { binance: "SOL", kraken: "SOL", coinbase: "SOL" }
   };
 
-  const base = assets[asset];
-  if (!base) {
-    throw new Error(`Aset belum didukung: ${asset}`);
+  const coin = assets[asset];
+  if (!coin) throw new Error(`Aset tidak didukung: ${asset}`);
+  if (currency !== "usd") {
+    throw new Error("Fallback harga saat ini mendukung mata uang USD.");
   }
 
-  const quote = currency === "usd" ? "USDT" : currency.toUpperCase();
-  const symbol = `${base}${quote}`;
+  const failures = [];
 
-  const url = new URL(
-    "https://data-api.binance.vision/api/v3/ticker/24hr"
+  // Provider 1: Kraken — ticker publik tanpa API key.
+  try {
+    const url = new URL("https://api.kraken.com/0/public/Ticker");
+    url.searchParams.set("pair", `${coin.kraken}USD`);
+
+    const res = await fetch(url, {
+      headers: { accept: "application/json" }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const json = await res.json();
+    if (json.error?.length || !json.result) {
+      throw new Error("Respons Kraken tidak valid");
+    }
+
+    const ticker = Object.values(json.result)[0];
+    const price = Number(ticker.c[0]);
+    const open = Number(ticker.o);
+
+    if (!(price > 0)) throw new Error("Harga Kraken kosong");
+
+    return {
+      id: asset,
+      name: asset,
+      symbol: coin.kraken,
+      price,
+      currency: "USD",
+      change24h: open > 0 ? ((price / open) - 1) * 100 : null,
+      change1h: null,
+      high24h: Number(ticker.h[1]),
+      low24h: Number(ticker.l[1]),
+      marketCap: null,
+      volume24h: Number(ticker.v[1]) * price,
+      image: null,
+      source: "Kraken",
+      fetchedAt: now()
+    };
+  } catch (e) {
+    failures.push(`Kraken: ${e.message}`);
+  }
+
+  // Provider 2: Coinbase — harga spot publik.
+  try {
+    const url =
+      `https://api.coinbase.com/v2/prices/${coin.coinbase}-USD/spot`;
+
+    const res = await fetch(url, {
+      headers: { accept: "application/json" }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const json = await res.json();
+    const price = Number(json.data?.amount);
+
+    if (!(price > 0)) throw new Error("Harga Coinbase kosong");
+
+    return {
+      id: asset,
+      name: asset,
+      symbol: coin.coinbase,
+      price,
+      currency: "USD",
+      change24h: null,
+      change1h: null,
+      high24h: null,
+      low24h: null,
+      marketCap: null,
+      volume24h: null,
+      image: null,
+      source: "Coinbase",
+      fetchedAt: now()
+    };
+  } catch (e) {
+    failures.push(`Coinbase: ${e.message}`);
+  }
+
+  throw new Error(
+    `Semua sumber harga gagal. ${failures.join(" | ")}`
   );
-  url.searchParams.set("symbol", symbol);
-
-  const res = await fetch(url, {
-    headers: { accept: "application/json" }
-  });
-
-  if (!res.ok) {
-    throw new Error(`Binance HTTP ${res.status}: gagal mengambil harga.`);
-  }
-
-  const data = await res.json();
-
-  return {
-    id: asset,
-    name: asset,
-    symbol: base,
-    price: Number(data.lastPrice),
-    currency: quote,
-    change24h: Number(data.priceChangePercent),
-    change1h: null,
-    high24h: Number(data.highPrice),
-    low24h: Number(data.lowPrice),
-    marketCap: null,
-    volume24h: Number(data.quoteVolume),
-    image: null,
-    fetchedAt: now()
-  };
 }
-
 
 async function analyze(env, market, previous, memories) {
   if (!env.GROQ_API_KEY) throw new Error("Secret GROQ_API_KEY belum diatur di Cloudflare.");
