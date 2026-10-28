@@ -20,27 +20,51 @@ async function getSettings(env) {
   }
   return s;
 }
+
 async function marketData(env, settings) {
-  const url = new URL("https://api.coingecko.com/api/v3/coins/markets");
-  url.searchParams.set("vs_currency", settings.currency || "usd");
-  url.searchParams.set("ids", settings.asset || "bitcoin");
-  url.searchParams.set("price_change_percentage", "1h,24h");
+  const currency = String(settings.currency || "usd").toLowerCase();
+  const asset = String(settings.asset || "bitcoin").toLowerCase();
+
+  const url = new URL("https://api.coingecko.com/api/v3/simple/price");
+  url.searchParams.set("ids", asset);
+  url.searchParams.set("vs_currencies", currency);
+  url.searchParams.set("include_24hr_change", "true");
+  url.searchParams.set("include_24hr_high", "true");
+  url.searchParams.set("include_24hr_low", "true");
+
   const headers = { accept: "application/json" };
-  if (env.COINGECKO_API_KEY) headers["x-cg-demo-api-key"] = env.COINGECKO_API_KEY;
+  if (env.COINGECKO_API_KEY) {
+    headers["x-cg-demo-api-key"] = env.COINGECKO_API_KEY;
+  }
+
   const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}; periksa API key atau rate limit.`);
-  const arr = await res.json();
-  const d = arr?.[0];
-  if (!d) throw new Error("Data market kosong. Periksa asset ID.");
+  if (!res.ok) {
+    throw new Error(`CoinGecko HTTP ${res.status}: gagal mengambil harga.`);
+  }
+
+  const data = await res.json();
+  const d = data[asset];
+  if (!d || d[currency] == null) {
+    throw new Error("Data harga kosong. Periksa asset ID dan mata uang.");
+  }
+
   return {
-    id: d.id, name: d.name, symbol: String(d.symbol || "").toUpperCase(),
-    price: d.current_price, currency: String(settings.currency || "usd").toUpperCase(),
-    change24h: d.price_change_percentage_24h ?? null,
-    change1h: d.price_change_percentage_1h_in_currency ?? null,
-    high24h: d.high_24h, low24h: d.low_24h, marketCap: d.market_cap,
-    volume24h: d.total_volume, image: d.image, fetchedAt: now()
+    id: asset,
+    name: asset,
+    symbol: asset.toUpperCase(),
+    price: d[currency],
+    currency: currency.toUpperCase(),
+    change24h: d[`${currency}_24h_change`] ?? null,
+    change1h: null,
+    high24h: d[`${currency}_24h_high`] ?? null,
+    low24h: d[`${currency}_24h_low`] ?? null,
+    marketCap: null,
+    volume24h: null,
+    image: null,
+    fetchedAt: now()
   };
 }
+
 async function analyze(env, market, previous, memories) {
   if (!env.GROQ_API_KEY) throw new Error("Secret GROQ_API_KEY belum diatur di Cloudflare.");
   const model = env.GROQ_MODEL || MODEL_DEFAULT;
