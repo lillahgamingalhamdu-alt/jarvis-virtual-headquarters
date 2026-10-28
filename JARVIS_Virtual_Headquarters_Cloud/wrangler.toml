@@ -10,7 +10,7 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "jarvis-memory"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "f07195b5-60f0-45ed-a71a-1b15b4518431"
 
 [triggers]
 crons = ["*/5 * * * *"]
