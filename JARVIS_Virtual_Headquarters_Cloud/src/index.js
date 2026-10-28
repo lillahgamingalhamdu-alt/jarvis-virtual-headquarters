@@ -21,49 +21,57 @@ async function getSettings(env) {
   return s;
 }
 
+
 async function marketData(env, settings) {
-  const currency = String(settings.currency || "usd").toLowerCase();
   const asset = String(settings.asset || "bitcoin").toLowerCase();
+  const currency = String(settings.currency || "usd").toLowerCase();
 
-  const url = new URL("https://api.coingecko.com/api/v3/simple/price");
-  url.searchParams.set("ids", asset);
-  url.searchParams.set("vs_currencies", currency);
-  url.searchParams.set("include_24hr_change", "true");
-  url.searchParams.set("include_24hr_high", "true");
-  url.searchParams.set("include_24hr_low", "true");
+  const assets = {
+    bitcoin: "BTC",
+    ethereum: "ETH",
+    solana: "SOL"
+  };
 
-  const headers = { accept: "application/json" };
-  if (env.COINGECKO_API_KEY) {
-    headers["x-cg-demo-api-key"] = env.COINGECKO_API_KEY;
+  const base = assets[asset];
+  if (!base) {
+    throw new Error(`Aset belum didukung: ${asset}`);
   }
 
-  const res = await fetch(url, { headers });
+  const quote = currency === "usd" ? "USDT" : currency.toUpperCase();
+  const symbol = `${base}${quote}`;
+
+  const url = new URL(
+    "https://data-api.binance.vision/api/v3/ticker/24hr"
+  );
+  url.searchParams.set("symbol", symbol);
+
+  const res = await fetch(url, {
+    headers: { accept: "application/json" }
+  });
+
   if (!res.ok) {
-    throw new Error(`CoinGecko HTTP ${res.status}: gagal mengambil harga.`);
+    throw new Error(`Binance HTTP ${res.status}: gagal mengambil harga.`);
   }
 
   const data = await res.json();
-  const d = data[asset];
-  if (!d || d[currency] == null) {
-    throw new Error("Data harga kosong. Periksa asset ID dan mata uang.");
-  }
 
   return {
     id: asset,
     name: asset,
-    symbol: asset.toUpperCase(),
-    price: d[currency],
-    currency: currency.toUpperCase(),
-    change24h: d[`${currency}_24h_change`] ?? null,
+    symbol: base,
+    price: Number(data.lastPrice),
+    currency: quote,
+    change24h: Number(data.priceChangePercent),
     change1h: null,
-    high24h: d[`${currency}_24h_high`] ?? null,
-    low24h: d[`${currency}_24h_low`] ?? null,
+    high24h: Number(data.highPrice),
+    low24h: Number(data.lowPrice),
     marketCap: null,
-    volume24h: null,
+    volume24h: Number(data.quoteVolume),
     image: null,
     fetchedAt: now()
   };
 }
+
 
 async function analyze(env, market, previous, memories) {
   if (!env.GROQ_API_KEY) throw new Error("Secret GROQ_API_KEY belum diatur di Cloudflare.");
